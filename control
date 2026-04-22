@@ -1,0 +1,8 @@
+Package: com.local.spotifyatvadblock
+Name: SpotifyATVAdBlock
+Version: 1.0.0
+Architecture: appletvos-arm64
+Description: Complete tvOS ad blocker for Spotify
+Maintainer: Local
+Section: Tweaks
+Depends: mobilesubstrate
