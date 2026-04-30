@@ -2,7 +2,7 @@
 
 A dylib tweak for **Spotify on Apple TV (tvOS)** that hooks into Spotify’s Objective-C runtime to modify ad-related behavior.
 
-Tested on **Spotify tvOS 9.1.28** and **9.1.36**.
+Tested on **Spotify Version 9.1.42** **Memory Leak fixed on this version!**
 
 -----
 
