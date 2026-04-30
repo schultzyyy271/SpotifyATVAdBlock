@@ -60,11 +60,10 @@ xcrun devicectl device install app --device <UDID> SpotifyATV_signed.ipa
 
 -----
 
-## Known Limitations
+## Known Limitations/Issues
 
 - Music videos are gated server-side and cannot be unlocked client-side.
-- A memory leak in Spotify 9.1.28 causes watchdog kills after extended sessions; use 9.1.36+.
-- Requires a decrypted IPA.
+- A memory leak in Spotify 9.1.28-9.1.40 causes watchdog kills after extended sessions; use 9.1.42+
 
 -----
 
