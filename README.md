@@ -47,7 +47,7 @@ Hooks fail gracefully — if a class or method isn't found, it's silently skippe
 1. Extract the IPA:
    `unzip Spotify.ipa -d SpotifyPatched`
 2. Copy the dylib into the app bundle at `SpotifyPatched/Payload/TvOSApp.app/`
-3. Inject the load command and strip the existing code signature:
+3. Inject the load command and strip the existing code signature **note: the binary inside TvOSApp.app/ is named TvOSApp, not Spotify**:
    `insert_dylib --strip-codesig --all-yes @executable_path/SpotifyATVAdBlock.dylib SpotifyPatched/Payload/TvOSApp.app/TvOSApp`
 4. Repack into an IPA from inside `SpotifyPatched/`:
    `zip -qr ../SpotifyATVAdBlock_patched.ipa Payload/`
