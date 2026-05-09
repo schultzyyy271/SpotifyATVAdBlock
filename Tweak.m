@@ -34,7 +34,6 @@ static IMP _orig_PlaybackRequest_isRoyaltyMedia         = NULL;
 static IMP _orig_StartCommandFactory_royaltyBypass      = NULL;
 static IMP _orig_ContextPlayerProps_royaltyBypass       = NULL;
 static IMP _orig_BetamaxSelector_kubrickMusicVideos     = NULL;
-static IMP _orig_VideoPlayerConfig_productState         = NULL;
 
 #pragma mark - Utility
 
