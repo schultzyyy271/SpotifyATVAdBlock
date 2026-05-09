@@ -18,17 +18,20 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        run: |
+          brew install ldid xz make
+
       - name: Cache Theos
         id: cache-theos
         uses: actions/cache@v4
         with:
           path: theos
-          key: ${{ runner.os }}-theos-v2
+          key: ${{ runner.os }}-theos-v3
 
       - name: Install Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
-          brew install ldid xz
           git clone --recursive https://github.com/theos/theos.git $THEOS
 
       - name: Install SDKs
@@ -42,6 +45,7 @@ jobs:
 
       - name: Build package
         run: |
+          export PATH="$(brew --prefix)/bin:$PATH"
           make package FINALPACKAGE=1
 
       - name: Upload .deb artifact
