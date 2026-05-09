@@ -18,10 +18,36 @@ static IMP _orig_spt_isAdURL                            = NULL;
 static IMP _orig_didReceiveData_Core                    = NULL;
 static IMP _orig_didReceiveData_DLS                     = NULL;
 
+// Music Video Bypass IMPs
+static IMP _orig_ConfigProvider_boolValueForId          = NULL;
+static IMP _orig_ObservableConfigProvider_boolValueForId = NULL;
+static IMP _orig_ProductState_stringForKey              = NULL;
+static IMP _orig_ProductState_objectForKeyedSubscript   = NULL;
+static IMP _orig_VideoSurface_isEligibleForAttachment   = NULL;
+static IMP _orig_VideoSurface_isPlayableForIdentity     = NULL;
+static IMP _orig_PlayerStateUtils_isVideoDisabled       = NULL;
+static IMP _orig_Track_isPremiumOnly                    = NULL;
+static IMP _orig_PlayerState_restrictions               = NULL;
+static IMP _orig_PlayerState_contextRestrictions        = NULL;
+static IMP _orig_PlaybackIdentity_isRoyaltyMedia        = NULL;
+static IMP _orig_PlaybackRequest_isRoyaltyMedia         = NULL;
+static IMP _orig_StartCommandFactory_royaltyBypass      = NULL;
+static IMP _orig_ContextPlayerProps_royaltyBypass       = NULL;
+static IMP _orig_BetamaxSelector_kubrickMusicVideos     = NULL;
+static IMP _orig_VideoPlayerConfig_productState         = NULL;
+
 #pragma mark - Utility
 
 static BOOL swizzleMethod(Class cls, SEL sel, IMP newImp, IMP *outOrig) {
     Method m = class_getInstanceMethod(cls, sel);
+    if (!m) return NO;
+    if (outOrig) *outOrig = method_getImplementation(m);
+    method_setImplementation(m, newImp);
+    return YES;
+}
+
+static BOOL swizzleClassMethod(Class cls, SEL sel, IMP newImp, IMP *outOrig) {
+    Method m = class_getClassMethod(cls, sel);
     if (!m) return NO;
     if (outOrig) *outOrig = method_getImplementation(m);
     method_setImplementation(m, newImp);
@@ -100,6 +126,12 @@ static NSData *modifyBootstrapData(NSData *data) {
         @"\"audio-ads\":true":               @"\"audio-ads\":false",
         @"\"ads-enabled\":true":             @"\"ads-enabled\":false",
         @"\"playback-restrictions\":true":   @"\"playback-restrictions\":false",
+        // Music video specific
+        @"\"video-streaming\":\"free\"":     @"\"video-streaming\":\"premium\"",
+        @"\"video-enabled\":false":          @"\"video-enabled\":true",
+        @"\"music-video-enabled\":false":    @"\"music-video-enabled\":true",
+        @"\"can-play-music-videos\":false":  @"\"can-play-music-videos\":true",
+        @"\"video-catalogue\":\"free\"":     @"\"video-catalogue\":\"premium\"",
     };
 
     for (NSString *from in replacements) {
@@ -161,10 +193,116 @@ static BOOL hooked_SPTVideoCoordinatorStartCommand_isAd(id self, SEL _cmd)   { r
 static BOOL hooked_SPTPlayerTrack_isAd(id self, SEL _cmd)                    { return NO; }
 static BOOL hooked_spt_isAdURL(id self, SEL _cmd)                            { return NO; }
 
+#pragma mark - Music Video Bypass Hooks
+
+// Feature flag hook - disable premium check, enable music video features
+static BOOL hooked_ConfigProvider_boolValueForId(id self, SEL _cmd, NSString *flagId, BOOL defaultValue) {
+    if ([flagId isEqualToString:@"enable_music_video_premium_check"]) {
+        NSLog(@"[SpotifyMusicVideo] bypassing premium check");
+        return NO;
+    }
+    if ([flagId isEqualToString:@"enable_music_video_playback"]) {
+        return YES;
+    }
+    if ([flagId containsString:@"music_video"]) {
+        return YES;
+    }
+    return ((BOOL(*)(id,SEL,NSString*,BOOL))_orig_ConfigProvider_boolValueForId)(self, _cmd, flagId, defaultValue);
+}
+
+static BOOL hooked_ObservableConfigProvider_boolValueForId(id self, SEL _cmd, NSString *flagId, BOOL defaultValue) {
+    if ([flagId isEqualToString:@"enable_music_video_premium_check"]) {
+        NSLog(@"[SpotifyMusicVideo] bypassing premium check (observable)");
+        return NO;
+    }
+    if ([flagId isEqualToString:@"enable_music_video_playback"]) {
+        return YES;
+    }
+    if ([flagId containsString:@"music_video"]) {
+        return YES;
+    }
+    return ((BOOL(*)(id,SEL,NSString*,BOOL))_orig_ObservableConfigProvider_boolValueForId)(self, _cmd, flagId, defaultValue);
+}
+
+// Product state hook - spoof premium catalogue
+static NSString* hooked_ProductState_stringForKey(id self, SEL _cmd, NSString *key) {
+    if ([key isEqualToString:@"catalogue"]) {
+        return @"premium";
+    }
+    if ([key isEqualToString:@"type"]) {
+        return @"premium";
+    }
+    if ([key isEqualToString:@"product"]) {
+        return @"premium";
+    }
+    return ((NSString*(*)(id,SEL,NSString*))_orig_ProductState_stringForKey)(self, _cmd, key);
+}
+
+static id hooked_ProductState_objectForKeyedSubscript(id self, SEL _cmd, NSString *key) {
+    if ([key isEqualToString:@"catalogue"]) {
+        return @"premium";
+    }
+    return ((id(*)(id,SEL,NSString*))_orig_ProductState_objectForKeyedSubscript)(self, _cmd, key);
+}
+
+// Video surface eligibility hooks
+static BOOL hooked_VideoSurface_isEligibleForAttachment(id self, SEL _cmd) {
+    return YES;
+}
+
+static BOOL hooked_VideoSurface_isPlayableForIdentity(id self, SEL _cmd, id identity) {
+    return YES;
+}
+
+// Video rendering disabled check
+static BOOL hooked_PlayerStateUtils_isVideoDisabled(id self, SEL _cmd, id playerState) {
+    return NO;
+}
+
+// Track premium check
+static BOOL hooked_Track_isPremiumOnly(id self, SEL _cmd) {
+    return NO;
+}
+
+// Player restrictions
+static id hooked_PlayerState_restrictions(id self, SEL _cmd) {
+    return nil;
+}
+
+static id hooked_PlayerState_contextRestrictions(id self, SEL _cmd) {
+    return nil;
+}
+
+// Royalty media bypass - critical for music video playback
+static BOOL hooked_PlaybackIdentity_isRoyaltyMedia(id self, SEL _cmd) {
+    return NO;  // Not royalty media = no premium check for playback
+}
+
+static BOOL hooked_PlaybackRequest_isRoyaltyMedia(id self, SEL _cmd) {
+    return NO;
+}
+
+static BOOL hooked_StartCommandFactory_royaltyBypass(id self, SEL _cmd) {
+    return YES;  // Enable royalty bypass
+}
+
+static BOOL hooked_ContextPlayerProps_royaltyBypass(id self, SEL _cmd) {
+    return YES;
+}
+
+// Kubrick player enabled for music videos
+static BOOL hooked_BetamaxSelector_kubrickMusicVideos(id self, SEL _cmd) {
+    return YES;  // Enable kubrick adaptive player for music videos
+}
+
 #pragma mark - Constructor
 
 __attribute__((constructor))
 static void SABInit(void) {
+    NSLog(@"[SpotifyATVAdBlock] initializing...");
+
+    // ========== Ad Blocking Hooks ==========
+
     Class dictCls = [NSDictionary class];
     struct { const char *name; IMP hook; IMP *orig; } dictHooks[] = {
         {"spt_metadata_isAdvertisement",           (IMP)hooked_spt_metadata_isAdvertisement,           &_orig_spt_metadata_isAdvertisement},
@@ -220,4 +358,161 @@ static void SABInit(void) {
     if (dlsCls)
         swizzleMethod(dlsCls, @selector(URLSession:dataTask:didReceiveData:),
                 (IMP)hooked_didReceiveData_DLS, &_orig_didReceiveData_DLS);
+
+    // ========== Music Video Bypass Hooks ==========
+
+    NSLog(@"[SpotifyMusicVideo] installing music video hooks...");
+
+    // Feature flag providers
+    Class configProviderCls = NSClassFromString(@"_TtC22RemoteConfigurationSDK25ConfigurationProviderImpl");
+    if (configProviderCls) {
+        SEL boolValueSel = NSSelectorFromString(@"boolValueForId:defaultValue:");
+        if ([configProviderCls instancesRespondToSelector:boolValueSel]) {
+            swizzleMethod(configProviderCls, boolValueSel,
+                    (IMP)hooked_ConfigProvider_boolValueForId, &_orig_ConfigProvider_boolValueForId);
+            NSLog(@"[SpotifyMusicVideo] hooked ConfigurationProviderImpl");
+        }
+    }
+
+    Class observableConfigCls = NSClassFromString(@"_TtC22RemoteConfigurationSDK35ObservableConfigurationProviderImpl");
+    if (observableConfigCls) {
+        SEL boolValueSel = NSSelectorFromString(@"boolValueForId:defaultValue:");
+        if ([observableConfigCls instancesRespondToSelector:boolValueSel]) {
+            swizzleMethod(observableConfigCls, boolValueSel,
+                    (IMP)hooked_ObservableConfigProvider_boolValueForId, &_orig_ObservableConfigProvider_boolValueForId);
+            NSLog(@"[SpotifyMusicVideo] hooked ObservableConfigurationProviderImpl");
+        }
+    }
+
+    // Product state - spoof premium catalogue
+    Class productStateCls = NSClassFromString(@"SPTCoreProductState");
+    if (productStateCls) {
+        SEL stringForKeySel = NSSelectorFromString(@"stringForKey:");
+        SEL objectSubSel = NSSelectorFromString(@"objectForKeyedSubscript:");
+        if ([productStateCls instancesRespondToSelector:stringForKeySel]) {
+            swizzleMethod(productStateCls, stringForKeySel,
+                    (IMP)hooked_ProductState_stringForKey, &_orig_ProductState_stringForKey);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTCoreProductState stringForKey:");
+        }
+        if ([productStateCls instancesRespondToSelector:objectSubSel]) {
+            swizzleMethod(productStateCls, objectSubSel,
+                    (IMP)hooked_ProductState_objectForKeyedSubscript, &_orig_ProductState_objectForKeyedSubscript);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTCoreProductState objectForKeyedSubscript:");
+        }
+    }
+
+    // Video surface eligibility
+    Class videoSurfaceCls = NSClassFromString(@"SPTVideoSurfaceImpl");
+    if (videoSurfaceCls) {
+        SEL eligibleSel = NSSelectorFromString(@"isEligibleForAttachment");
+        SEL playableSel = NSSelectorFromString(@"isPlayableForIdentity:");
+        if ([videoSurfaceCls instancesRespondToSelector:eligibleSel]) {
+            swizzleMethod(videoSurfaceCls, eligibleSel,
+                    (IMP)hooked_VideoSurface_isEligibleForAttachment, &_orig_VideoSurface_isEligibleForAttachment);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTVideoSurfaceImpl isEligibleForAttachment");
+        }
+        if ([videoSurfaceCls instancesRespondToSelector:playableSel]) {
+            swizzleMethod(videoSurfaceCls, playableSel,
+                    (IMP)hooked_VideoSurface_isPlayableForIdentity, &_orig_VideoSurface_isPlayableForIdentity);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTVideoSurfaceImpl isPlayableForIdentity:");
+        }
+    }
+
+    // Video rendering disabled check (class method)
+    Class playerStateUtilsCls = NSClassFromString(@"SPTPlayerStateUtilities");
+    if (playerStateUtilsCls) {
+        SEL videoDisabledSel = NSSelectorFromString(@"isVideoRenderingLocallyDisabled:");
+        if ([playerStateUtilsCls respondsToSelector:videoDisabledSel]) {
+            swizzleClassMethod(playerStateUtilsCls, videoDisabledSel,
+                    (IMP)hooked_PlayerStateUtils_isVideoDisabled, &_orig_PlayerStateUtils_isVideoDisabled);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTPlayerStateUtilities isVideoRenderingLocallyDisabled:");
+        }
+    }
+
+    // Track premium only check
+    Class trackImplCls = NSClassFromString(@"_TtC29Playlist_PlaylistPlatformImpl36PlaylistTrackEsperantoImplementation");
+    if (trackImplCls) {
+        SEL premiumOnlySel = NSSelectorFromString(@"isPremiumOnly");
+        if ([trackImplCls instancesRespondToSelector:premiumOnlySel]) {
+            swizzleMethod(trackImplCls, premiumOnlySel,
+                    (IMP)hooked_Track_isPremiumOnly, &_orig_Track_isPremiumOnly);
+            NSLog(@"[SpotifyMusicVideo] hooked PlaylistTrackEsperantoImplementation isPremiumOnly");
+        }
+    }
+
+    // Player state restrictions
+    Class playerStateCls = NSClassFromString(@"SPTPlayerStateImplementation");
+    if (playerStateCls) {
+        SEL restrictionsSel = NSSelectorFromString(@"restrictions");
+        SEL contextRestrictionsSel = NSSelectorFromString(@"contextRestrictions");
+        if ([playerStateCls instancesRespondToSelector:restrictionsSel]) {
+            swizzleMethod(playerStateCls, restrictionsSel,
+                    (IMP)hooked_PlayerState_restrictions, &_orig_PlayerState_restrictions);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTPlayerStateImplementation restrictions");
+        }
+        if ([playerStateCls instancesRespondToSelector:contextRestrictionsSel]) {
+            swizzleMethod(playerStateCls, contextRestrictionsSel,
+                    (IMP)hooked_PlayerState_contextRestrictions, &_orig_PlayerState_contextRestrictions);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTPlayerStateImplementation contextRestrictions");
+        }
+    }
+
+    // ========== Additional Music Video Hooks (Royalty/Playback) ==========
+
+    // Royalty media check - PlaybackIdentityImpl
+    Class playbackIdentityCls = NSClassFromString(@"_TtC10BetamaxSDK20PlaybackIdentityImpl");
+    if (playbackIdentityCls) {
+        SEL isRoyaltySel = NSSelectorFromString(@"isRoyaltyMedia");
+        if ([playbackIdentityCls instancesRespondToSelector:isRoyaltySel]) {
+            swizzleMethod(playbackIdentityCls, isRoyaltySel,
+                    (IMP)hooked_PlaybackIdentity_isRoyaltyMedia, &_orig_PlaybackIdentity_isRoyaltyMedia);
+            NSLog(@"[SpotifyMusicVideo] hooked PlaybackIdentityImpl isRoyaltyMedia");
+        }
+    }
+
+    // Royalty media check - PlaybackRequestImpl
+    Class playbackRequestCls = NSClassFromString(@"_TtCC13BetamaxSDKAPI22PlaybackRequestFactoryP33_D84ACD925BDAD37D9EFF9097F93EA1D619PlaybackRequestImpl");
+    if (playbackRequestCls) {
+        SEL isRoyaltySel = NSSelectorFromString(@"isRoyaltyMedia");
+        if ([playbackRequestCls instancesRespondToSelector:isRoyaltySel]) {
+            swizzleMethod(playbackRequestCls, isRoyaltySel,
+                    (IMP)hooked_PlaybackRequest_isRoyaltyMedia, &_orig_PlaybackRequest_isRoyaltyMedia);
+            NSLog(@"[SpotifyMusicVideo] hooked PlaybackRequestImpl isRoyaltyMedia");
+        }
+    }
+
+    // Royalty bypass - SPTVideoCoordinatorStartCommandFactory
+    Class startCommandFactoryCls = NSClassFromString(@"SPTVideoCoordinatorStartCommandFactory");
+    if (startCommandFactoryCls) {
+        SEL royaltyBypassSel = NSSelectorFromString(@"listPlayerRoyaltyBypassEnabled");
+        if ([startCommandFactoryCls instancesRespondToSelector:royaltyBypassSel]) {
+            swizzleMethod(startCommandFactoryCls, royaltyBypassSel,
+                    (IMP)hooked_StartCommandFactory_royaltyBypass, &_orig_StartCommandFactory_royaltyBypass);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTVideoCoordinatorStartCommandFactory listPlayerRoyaltyBypassEnabled");
+        }
+    }
+
+    // Royalty bypass - ContextPlayerCoordinatorImplProperties
+    Class contextPlayerPropsCls = NSClassFromString(@"SPTBetamax_ContextPlayerCoordinatorImplProperties");
+    if (contextPlayerPropsCls) {
+        SEL royaltyBypassSel = NSSelectorFromString(@"listPlayerRoyaltyBypassEnabled");
+        if ([contextPlayerPropsCls instancesRespondToSelector:royaltyBypassSel]) {
+            swizzleMethod(contextPlayerPropsCls, royaltyBypassSel,
+                    (IMP)hooked_ContextPlayerProps_royaltyBypass, &_orig_ContextPlayerProps_royaltyBypass);
+            NSLog(@"[SpotifyMusicVideo] hooked ContextPlayerCoordinatorImplProperties listPlayerRoyaltyBypassEnabled");
+        }
+    }
+
+    // Kubrick adaptive player for music videos
+    Class betamaxSelectorCls = NSClassFromString(@"SPTVideoBetamaxPlayerSelector");
+    if (betamaxSelectorCls) {
+        SEL kubrickMusicVideosSel = NSSelectorFromString(@"isKubrickAdaptiveOnContextPlayerMusicVideosEnabled");
+        if ([betamaxSelectorCls instancesRespondToSelector:kubrickMusicVideosSel]) {
+            swizzleMethod(betamaxSelectorCls, kubrickMusicVideosSel,
+                    (IMP)hooked_BetamaxSelector_kubrickMusicVideos, &_orig_BetamaxSelector_kubrickMusicVideos);
+            NSLog(@"[SpotifyMusicVideo] hooked SPTVideoBetamaxPlayerSelector isKubrickAdaptiveOnContextPlayerMusicVideosEnabled");
+        }
+    }
+
+    NSLog(@"[SpotifyATVAdBlock] initialization complete");
 }
